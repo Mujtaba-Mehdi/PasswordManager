@@ -59,6 +59,7 @@ delete_button.grid(row=3, column=2, padx=10, pady=10)
 save_button.grid(row=3, column=3, padx=5, pady=5)
 load_button.grid(row=3, column=4, padx=5, pady=5)
 
+
 # Define function to add password to listbox
 def add_password():
     website = website_entry.get()
@@ -78,19 +79,27 @@ def add_password():
 
 add_button.config(command=add_password)
 
-# Define function to edit password in listbox
+
 def edit_password():
     # Get the selected item from the listbox
     selected_item = password_listbox.curselection()
     if not selected_item:
         messagebox.showerror("Error", "Please select a password to edit.")
         return
-    selected_password = password_listbox.get(selected_item)
+    selected_password = password_listbox.get(selected_item[0])
     website, username, encrypted_password = selected_password.split("  ")
     website = website.split("Website: ")[1]
     username = username.split("Username: ")[1]
+    # Extract the encrypted password from the selected password string
     encrypted_password = encrypted_password.split("Password: ")[1]
-    decrypted_password = cipher_suite.decrypt(encrypted_password.encode()).decode()
+    print(f"Encrypted password: {encrypted_password}")
+
+    # Decrypt the password
+    try:
+        decrypted_password = cipher_suite.decrypt(encrypted_password)
+    except Exception as e:
+        print(f"Error decrypting password: {e}")
+        return
 
     # Create a new window for editing the password
     edit_window = tk.Toplevel(root)
@@ -110,7 +119,7 @@ def edit_password():
     password_entry.insert(0, decrypted_password)
 
     # Create the "Save" button
-    save_button = tk.Button(edit_window, text="Save Password", padx=10, pady=5, fg="white", bg="#0072C6", font=("Helvetica", 14))
+    save_button = tk.Button(edit_window, text="Save", padx=10, pady=5, fg="white", bg="#0072C6", font=("Helvetica", 14))
 
     # Set up grid layout
     edit_window.columnconfigure(0, weight=1)
@@ -126,10 +135,10 @@ def edit_password():
     password_label.grid(row=2, column=0, padx=10, pady=10)
     password_entry.grid(row=2, column=1, padx=10, pady=10)
 
-    save_button.grid(row=3, columnspan=2, padx=10, pady=10)
+    save_button.grid(row=3, column=0, columnspan=2, padx=10, pady=10)
 
     # Define function to save edited password
-    def save_password():
+    def save_edited_password():
         website = website_entry.get()
         username = username_entry.get()
         password = password_entry.get().encode()
@@ -140,11 +149,12 @@ def edit_password():
             return
 
         encrypted_password = cipher_suite.encrypt(password)
+        new_password = f"Website: {website}  Username: {username}  Password: {encrypted_password.decode()}"
         password_listbox.delete(selected_item)
-        password_listbox.insert(selected_item, f"Website: {website}  Username: {username}  Password: {encrypted_password.decode()}")
+        password_listbox.insert(selected_item, new_password)
         edit_window.destroy()
 
-    save_button.config(command=save_password)
+    save_button.config(command=save_edited_password)
 
 edit_button.config(command=edit_password)
 
@@ -166,46 +176,71 @@ delete_button.config(command=delete_password)
 
 
 def save_passwords():
-    # Open a file dialog to get the file name and location to save the passwords
-    file_path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text Files", "*.txt")])
-    if not file_path:
-        return
+    # Get the filename to save to
+    filename = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text Files", "*.txt")])
 
-    # Write the passwords to the file
-    with open(file_path, "w") as f:
-        for i in range(password_listbox.size()):
-            password = password_listbox.get(i)
-            f.write(password + "\n")
+    if filename:
+        # Open the file and write each password in the listbox
+        with open(filename, "wb") as f:
+            for password in password_listbox.get(0, tk.END):
+                password_components = password.split("Password: ")
+                if len(password_components) == 2:
+                    website_username, encrypted_password = password_components
 
-    # Show a message box to confirm that passwords have been saved
-    messagebox.showinfo("Success", "Passwords saved successfully.")
+                    website_username_components = website_username.split("Username: ")
+                    if len(website_username_components) == 2:
+                        website, username = website_username_components
+
+                        f.write(website.encode() + "\n".encode())
+                        f.write("Username: ".encode() + username.encode() + "\n".encode())
+                        f.write("Password: ".encode() + encrypted_password.encode() + "\n".encode())
+                        f.write("\n".encode())  # Add a new line after every entry
+
+        messagebox.showinfo("Password Manager", "Passwords saved successfully.")
+
+        # Update the file where you are storing the passwords
+        with open("passwords.txt", "w") as f:
+            for password in password_listbox.get(0, tk.END):
+                f.write(f"{password}\n")
+
+
 save_button.config(command=save_passwords)
 
 
 def load_passwords():
-    # Open the password file for reading
-    file_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt")])
-    if not file_path:
-        return
+    # Get the filename to load from
+    filename = filedialog.askopenfilename(defaultextension=".txt", filetypes=[("Text Files", "*.txt")])
 
-    with open(file_path, "rb") as f:
-        encrypted_data = f.read()
+    if filename:
+        # Clear the current passwords in the listbox
+        password_listbox.delete(0, tk.END)
 
-    # Decrypt the password data
-    decrypted_data = cipher_suite.decrypt(encrypted_data)
-    password_data = decrypted_data.decode().split("\n")
+        # Open the file and read the passwords
+        with open(filename, "rb") as f:
+            current_password = {}
+            for line in f:
+                line = line.strip().decode()
+                if line.startswith("Website: "):
+                    current_password["website"] = line.split("Website: ")[1]
+                elif line.startswith("Username: "):
+                    current_password["username"] = line.split("Username: ")[1]
+                elif line.startswith("Password: "):
+                    current_password["encrypted_password"] = line.split("Password: ")[1]
+                elif not line:
+                    # Add the current password to the listbox and reset the current_password dict
+                    password_string = f"Website: {current_password['website']}  Username: {current_password['username']}  Password: {current_password['encrypted_password']}"
+                    password_listbox.insert(tk.END, password_string)
+                    current_password = {}
+                else:
+                    # Invalid line format
+                    print(f"Invalid line in password file: {line}")
 
-    # Populate the password listbox with the decrypted passwords
-    password_listbox.delete(0, tk.END)
-    for password in password_data:
-        if not password:
-            continue
-        website, username, encrypted_password = password.split("  ")
-        website = website.split("Website: ")[1]
-        username = username.split("Username: ")[1]
-        encrypted_password = encrypted_password.split("Password: ")[1]
-        decrypted_password = cipher_suite.decrypt(encrypted_password.encode()).decode()
-        password_listbox.insert(tk.END, f"Website: {website}  Username: {username}  Password: {decrypted_password}")
+        # If there is a partially loaded password remaining, add it to the listbox
+        if current_password:
+            password_string = f"Website: {current_password['website']}  Username: {current_password['username']}  Password: {current_password['encrypted_password']}"
+            password_listbox.insert(tk.END, password_string)
+
+        messagebox.showinfo("Password Manager", "Passwords loaded successfully.")
 
 load_button.config(command=load_passwords)
 
